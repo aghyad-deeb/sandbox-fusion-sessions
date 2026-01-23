@@ -141,16 +141,33 @@ class BashSessionManager:
     
     async def create_session(
         self,
+        session_id: Optional[str] = None,
         files: Optional[Dict[str, Optional[str]]] = None,
         startup_commands: Optional[List[str]] = None,
         env: Optional[Dict[str, str]] = None,
     ) -> str:
-        """Create a new session."""
+        """Create a new session.
+        
+        Args:
+            session_id: Optional client-provided session ID for consistent hashing.
+                        If None, a UUID is generated server-side.
+            files: Dict of filename -> base64-encoded content to pre-populate.
+            startup_commands: Commands to run on session initialization.
+            env: Additional environment variables for the session.
+            
+        Returns:
+            The session_id (either client-provided or server-generated).
+        """
+        # Use client-provided session_id or generate one
+        if session_id is None:
+            session_id = uuid4().hex
+            
         async with self._lock:
             if len(self.sessions) >= self.max_sessions:
                 raise RuntimeError(f"Max sessions ({self.max_sessions}) reached")
-        
-        session_id = uuid4().hex
+            # Check if session_id already exists (client error)
+            if session_id in self.sessions:
+                raise RuntimeError(f"Session {session_id} already exists")
         working_dir = tempfile.mkdtemp(dir=get_tmp_dir(), prefix=f"sess_{session_id[:8]}_")
         
         # Restore files

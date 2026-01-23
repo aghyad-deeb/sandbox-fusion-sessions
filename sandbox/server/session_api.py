@@ -39,6 +39,10 @@ logger = structlog.stdlib.get_logger()
 
 class CreateSessionRequest(BaseModel):
     """Request to create a new bash session."""
+    session_id: Optional[str] = Field(
+        default=None,
+        description="Client-provided session ID for consistent hashing across multiple containers. If not provided, server generates one."
+    )
     files: Dict[str, Optional[str]] = Field(
         default={},
         description="Dict of filename -> base64-encoded content to pre-populate in session"
@@ -124,10 +128,14 @@ async def create_session(request: CreateSessionRequest) -> CreateSessionResponse
     
     Sessions are isolated from each other via separate working directories
     and bash processes.
+    
+    If session_id is provided, it will be used (for consistent hashing across
+    multiple containers). Otherwise, the server generates one.
     """
     try:
         manager = get_session_manager()
         session_id = await manager.create_session(
+            session_id=request.session_id,
             files=request.files,
             startup_commands=request.startup_commands,
             env=request.env,
