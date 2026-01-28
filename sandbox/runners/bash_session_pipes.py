@@ -269,12 +269,15 @@ exit $__exit_code
 '''
         
         try:
+            # Use start_new_session=True to create a new process group
+            # This allows us to kill all child processes on timeout
             proc = await asyncio.create_subprocess_shell(
                 wrapped_cmd,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 cwd=session.working_dir,
                 executable='/bin/bash',
+                start_new_session=True,  # Create new process group for clean killing
             )
             
             try:
@@ -284,7 +287,19 @@ exit $__exit_code
                 )
                 return_code = proc.returncode
             except asyncio.TimeoutError:
-                proc.kill()
+                # Kill the entire process group, not just the shell
+                # This ensures child processes (e.g., python scripts) are also killed
+                try:
+                    os.killpg(proc.pid, 9)  # SIGKILL to entire process group
+                except ProcessLookupError:
+                    pass  # Process already dead
+                except OSError as e:
+                    logger.warning(f"Failed to kill process group {proc.pid}: {e}")
+                    # Fallback to killing just the process
+                    try:
+                        proc.kill()
+                    except ProcessLookupError:
+                        pass
                 await proc.wait()
                 return {
                     "status": "Failed",
