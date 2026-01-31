@@ -13,7 +13,7 @@ echo "Stopping SandboxFusion containers..."
 STOPPED=0
 for i in $(seq 0 $((NUM_CONTAINERS - 1))); do
     CONTAINER_NAME="${CONTAINER_PREFIX}-${i}"
-    if docker ps -q -f name="$CONTAINER_NAME" | grep -q .; then
+    if docker ps -a -q -f name="^${CONTAINER_NAME}$" | grep -q .; then
         docker rm -f "$CONTAINER_NAME" >/dev/null 2>&1
         echo "  Stopped: $CONTAINER_NAME"
         STOPPED=$((STOPPED + 1))
@@ -21,7 +21,7 @@ for i in $(seq 0 $((NUM_CONTAINERS - 1))); do
 done
 
 # Also stop any legacy single container
-if docker ps -q -f name="sandbox-fusion-sessions" | grep -q .; then
+if docker ps -a -q -f name="^sandbox-fusion-sessions$" | grep -q .; then
     docker rm -f "sandbox-fusion-sessions" >/dev/null 2>&1
     echo "  Stopped: sandbox-fusion-sessions (legacy)"
     STOPPED=$((STOPPED + 1))
