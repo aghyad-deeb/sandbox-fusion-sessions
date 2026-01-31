@@ -28,7 +28,7 @@ import traceback
 from typing import Dict, List, Optional
 
 import structlog
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 from sandbox.runners.bash_session_pipes import get_session_manager
@@ -211,7 +211,7 @@ async def get_session_info(session_id: str):
     manager = get_session_manager()
     info = await manager.get_session_info(session_id)
     if info is None:
-        return {"error": f"Session {session_id} not found"}
+        raise HTTPException(status_code=404, detail=f"Session {session_id} not found")
     return SessionInfoResponse(**info)
 
 
