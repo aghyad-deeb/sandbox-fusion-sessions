@@ -34,18 +34,42 @@ import os
 import pty
 import select
 import shutil
+import signal
 import tempfile
 import time
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional
 from uuid import uuid4
 
+import psutil
 import structlog
 
-from sandbox.runners.base import restore_files
-from sandbox.utils.execution import get_tmp_dir, kill_process_tree
+from sandbox.runners.base import restore_files, get_tmp_dir
 
 logger = structlog.stdlib.get_logger()
+
+
+def kill_process_tree(pid: int, sig=signal.SIGTERM):
+    """Kill a process and all its children."""
+    try:
+        parent = psutil.Process(pid)
+        children = parent.children(recursive=True)
+
+        # Kill children first
+        for child in children:
+            try:
+                child.send_signal(sig)
+            except psutil.NoSuchProcess:
+                pass
+
+        # Kill parent
+        try:
+            parent.send_signal(sig)
+        except psutil.NoSuchProcess:
+            pass
+
+    except psutil.NoSuchProcess:
+        pass
 
 
 # Unique markers for output parsing - unlikely to appear in normal output
@@ -325,11 +349,21 @@ class BashSessionManager:
             }
             
         except asyncio.TimeoutError:
+            # Kill all child processes of the bash session when timeout occurs
+            logger.warning(f"Command timed out in session {session_id}, killing child processes")
+            kill_process_tree(session.pid, signal.SIGTERM)
+
+            # Wait briefly for graceful termination
+            await asyncio.sleep(0.5)
+
+            # Force kill any remaining processes
+            kill_process_tree(session.pid, signal.SIGKILL)
+
             return {
                 "status": "Failed",
                 "message": "Command timed out",
                 "stdout": "",
-                "stderr": "Command execution timed out",
+                "stderr": "Command execution timed out and processes were terminated",
                 "return_code": -1,
                 "files": {},
             }
