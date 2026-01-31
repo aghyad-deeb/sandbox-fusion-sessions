@@ -33,12 +33,14 @@ import asyncio
 import base64
 import os
 import shutil
+import signal
 import tempfile
 import time
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional
 from uuid import uuid4
 
+import psutil
 import structlog
 
 from sandbox.runners.base import restore_files
@@ -90,6 +92,10 @@ class BashSessionManager:
         self._cleanup_task: Optional[asyncio.Task] = None
         # Semaphore to limit concurrent command executions
         self._cmd_semaphore: Optional[asyncio.Semaphore] = None
+        # Metrics tracking
+        self.timeout_count = 0
+        self.command_count = 0
+        self.process_kill_failures = 0
         
     async def start(self):
         """Start the session manager."""
@@ -229,7 +235,8 @@ class BashSessionManager:
                 }
         
         session.update_last_used()
-        
+        self.command_count += 1
+
         # Acquire semaphore to limit concurrent commands
         if self._cmd_semaphore:
             await self._cmd_semaphore.acquire()
@@ -287,19 +294,63 @@ exit $__exit_code
                 )
                 return_code = proc.returncode
             except asyncio.TimeoutError:
-                # Kill the entire process group, not just the shell
-                # This ensures child processes (e.g., python scripts) are also killed
+                self.timeout_count += 1
+                logger.warning(f"Command timed out ({self.timeout_count} total timeouts), killing process tree for PID {proc.pid}")
+
+                # First attempt: killpg to terminate process group
                 try:
-                    os.killpg(proc.pid, 9)  # SIGKILL to entire process group
-                except ProcessLookupError:
-                    pass  # Process already dead
-                except OSError as e:
-                    logger.warning(f"Failed to kill process group {proc.pid}: {e}")
-                    # Fallback to killing just the process
+                    os.killpg(proc.pid, signal.SIGTERM)
+                    logger.debug(f"Sent SIGTERM to process group {proc.pid}")
+                except (ProcessLookupError, OSError) as e:
+                    logger.debug(f"killpg failed: {e}, will use psutil fallback")
+
+                await asyncio.sleep(0.5)  # Grace period
+
+                # Second attempt: Force kill with killpg
+                try:
+                    os.killpg(proc.pid, signal.SIGKILL)
+                    logger.debug(f"Sent SIGKILL to process group {proc.pid}")
+                except (ProcessLookupError, OSError):
+                    pass
+
+                # Third attempt: Use psutil to recursively kill descendants
+                try:
+                    parent = psutil.Process(proc.pid)
+                    children = parent.children(recursive=True)
+
+                    if children:
+                        child_pids = [c.pid for c in children]
+                        logger.warning(f"Found {len(children)} surviving children: {child_pids}")
+
+                        # Kill children first
+                        for child in children:
+                            try:
+                                child.kill()  # SIGKILL
+                            except psutil.NoSuchProcess:
+                                pass
+
+                    # Kill parent
                     try:
-                        proc.kill()
-                    except ProcessLookupError:
+                        parent.kill()
+                    except psutil.NoSuchProcess:
                         pass
+
+                except psutil.NoSuchProcess:
+                    logger.debug(f"Process {proc.pid} already terminated")
+
+                # Verify all processes are dead
+                await asyncio.sleep(0.2)
+                try:
+                    parent = psutil.Process(proc.pid)
+                    remaining_children = parent.children(recursive=True)
+                    if remaining_children:
+                        remaining_pids = [c.pid for c in remaining_children]
+                        self.process_kill_failures += 1
+                        logger.error(f"ERROR: {len(remaining_children)} processes STILL ALIVE: {remaining_pids}")
+                except psutil.NoSuchProcess:
+                    logger.debug("All processes successfully killed")
+
+                # Wait for process to be reaped
                 await proc.wait()
                 return {
                     "status": "Failed",

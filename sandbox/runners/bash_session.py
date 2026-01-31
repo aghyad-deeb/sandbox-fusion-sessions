@@ -55,6 +55,10 @@ def kill_process_tree(pid: int, sig=signal.SIGTERM):
         parent = psutil.Process(pid)
         children = parent.children(recursive=True)
 
+        child_pids = [c.pid for c in children]
+        if child_pids:
+            logger.debug(f"Killing {len(children)} child processes: {child_pids}")
+
         # Kill children first
         for child in children:
             try:
@@ -65,11 +69,22 @@ def kill_process_tree(pid: int, sig=signal.SIGTERM):
         # Kill parent
         try:
             parent.send_signal(sig)
+            logger.debug(f"Sent signal {sig} to parent process {pid}")
         except psutil.NoSuchProcess:
-            pass
+            logger.debug(f"Process {pid} already gone")
 
     except psutil.NoSuchProcess:
-        pass
+        logger.debug(f"Process tree {pid} does not exist")
+
+
+def _count_process_tree(pid: int) -> int:
+    """Count processes in tree (for verification)."""
+    try:
+        parent = psutil.Process(pid)
+        children = parent.children(recursive=True)
+        return 1 + len(children)  # parent + children
+    except psutil.NoSuchProcess:
+        return 0
 
 
 # Unique markers for output parsing - unlikely to appear in normal output
@@ -350,14 +365,29 @@ class BashSessionManager:
             
         except asyncio.TimeoutError:
             # Kill all child processes of the bash session when timeout occurs
-            logger.warning(f"Command timed out in session {session_id}, killing child processes")
-            kill_process_tree(session.pid, signal.SIGTERM)
+            logger.warning(f"Command timed out in session {session_id}, killing process group")
 
-            # Wait briefly for graceful termination
-            await asyncio.sleep(0.5)
+            # Kill entire process group atomically
+            try:
+                # Bash process created with setsid(), so it's a session leader
+                # Kill the entire session group
+                os.killpg(session.pid, signal.SIGTERM)
+                await asyncio.sleep(0.5)
+                os.killpg(session.pid, signal.SIGKILL)
+                logger.info(f"Successfully killed process group {session.pid}")
+            except ProcessLookupError:
+                logger.debug(f"Process group {session.pid} already terminated")
+            except OSError as e:
+                logger.warning(f"Failed to kill process group {session.pid}: {e}, falling back to psutil")
+                # Fallback to psutil method
+                kill_process_tree(session.pid, signal.SIGTERM)
+                await asyncio.sleep(0.5)
+                kill_process_tree(session.pid, signal.SIGKILL)
 
-            # Force kill any remaining processes
-            kill_process_tree(session.pid, signal.SIGKILL)
+            # Verify processes are gone
+            remaining = _count_process_tree(session.pid)
+            if remaining > 0:
+                logger.error(f"Warning: {remaining} processes still alive after kill in session {session_id}")
 
             return {
                 "status": "Failed",
