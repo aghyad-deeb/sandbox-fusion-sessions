@@ -1,5 +1,5 @@
 #!/bin/bash
-# Stop all SandboxFusion containers
+# Stop all SandboxFusion containers (PARALLEL)
 #
 # Usage:
 #   ./stop.sh           # Stop all containers (default: 8)
@@ -8,28 +8,28 @@
 NUM_CONTAINERS="${1:-${SANDBOX_NUM_CONTAINERS:-8}}"
 CONTAINER_PREFIX="sandbox-fusion-sessions"
 
-echo "Stopping SandboxFusion containers..."
+echo "Stopping SandboxFusion containers in parallel..."
 
-STOPPED=0
+# Stop all containers in parallel
+PIDS=()
 for i in $(seq 0 $((NUM_CONTAINERS - 1))); do
     CONTAINER_NAME="${CONTAINER_PREFIX}-${i}"
     if docker ps -a -q -f name="^${CONTAINER_NAME}$" | grep -q .; then
-        docker rm -f "$CONTAINER_NAME" >/dev/null 2>&1
-        echo "  Stopped: $CONTAINER_NAME"
-        STOPPED=$((STOPPED + 1))
+        docker rm -f "$CONTAINER_NAME" >/dev/null 2>&1 &
+        PIDS+=($!)
     fi
 done
 
 # Also stop any legacy single container
 if docker ps -a -q -f name="^sandbox-fusion-sessions$" | grep -q .; then
-    docker rm -f "sandbox-fusion-sessions" >/dev/null 2>&1
-    echo "  Stopped: sandbox-fusion-sessions (legacy)"
-    STOPPED=$((STOPPED + 1))
+    docker rm -f "sandbox-fusion-sessions" >/dev/null 2>&1 &
+    PIDS+=($!)
 fi
 
-if [ "$STOPPED" -eq 0 ]; then
-    echo "  No containers were running"
+# Wait for all stop operations to complete
+if [ ${#PIDS[@]} -gt 0 ]; then
+    wait "${PIDS[@]}"
+    echo "Stopped ${#PIDS[@]} container(s)"
 else
-    echo ""
-    echo "Stopped $STOPPED container(s)"
+    echo "  No containers were running"
 fi

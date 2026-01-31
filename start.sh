@@ -55,30 +55,37 @@ fi
 echo ""
 
 # =============================================================================
-# STEP 2: Stop existing containers
+# STEP 2: Stop existing containers (PARALLEL)
 # =============================================================================
 
-echo "Stopping any existing containers..."
+echo "Stopping any existing containers in parallel..."
+STOP_PIDS=()
 for i in $(seq 0 $((NUM_CONTAINERS - 1))); do
     CONTAINER_NAME="${CONTAINER_PREFIX}-${i}"
     if docker ps -q -f name="$CONTAINER_NAME" | grep -q .; then
-        docker rm -f "$CONTAINER_NAME" >/dev/null 2>&1 || true
+        docker rm -f "$CONTAINER_NAME" >/dev/null 2>&1 &
+        STOP_PIDS+=($!)
     fi
 done
-sleep 2
+
+# Wait for all stop operations
+if [ ${#STOP_PIDS[@]} -gt 0 ]; then
+    wait "${STOP_PIDS[@]}"
+    echo "Stopped ${#STOP_PIDS[@]} existing container(s)"
+fi
+sleep 1
 echo ""
 
 # =============================================================================
-# STEP 3: Start all containers
+# STEP 3: Start all containers (PARALLEL)
 # =============================================================================
 
-echo "Starting $NUM_CONTAINERS containers..."
-ENDPOINTS=""
+echo "Starting $NUM_CONTAINERS containers in parallel..."
+START_PIDS=()
 for i in $(seq 0 $((NUM_CONTAINERS - 1))); do
     PORT=$((BASE_PORT + i))
     CONTAINER_NAME="${CONTAINER_PREFIX}-${i}"
-    
-    echo "  Starting container $i on port $PORT..."
+
     docker run -d --rm \
         --name "$CONTAINER_NAME" \
         --ulimit nofile=65535:65535 \
@@ -86,8 +93,18 @@ for i in $(seq 0 $((NUM_CONTAINERS - 1))); do
         -e MAX_CONCURRENT_COMMANDS="$MAX_CONCURRENT" \
         -e MAX_BASH_SESSIONS="$MAX_SESSIONS" \
         -e BASH_SESSION_TIMEOUT="$SESSION_TIMEOUT" \
-        "$IMAGE_NAME" >/dev/null
-    
+        "$IMAGE_NAME" >/dev/null 2>&1 &
+    START_PIDS+=($!)
+done
+
+# Wait for all docker run commands to complete
+wait "${START_PIDS[@]}"
+echo "Launched $NUM_CONTAINERS containers"
+
+# Build endpoints list
+ENDPOINTS=""
+for i in $(seq 0 $((NUM_CONTAINERS - 1))); do
+    PORT=$((BASE_PORT + i))
     if [ -z "$ENDPOINTS" ]; then
         ENDPOINTS="http://localhost:$PORT"
     else
