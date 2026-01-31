@@ -314,6 +314,7 @@ exit $__exit_code
                     pass
 
                 # Third attempt: Use psutil to recursively kill descendants
+                children_to_reap = []  # Track PIDs for reaping to prevent zombies
                 try:
                     parent = psutil.Process(proc.pid)
                     children = parent.children(recursive=True)
@@ -322,10 +323,11 @@ exit $__exit_code
                         child_pids = [c.pid for c in children]
                         logger.warning(f"Found {len(children)} surviving children: {child_pids}")
 
-                        # Kill children first
+                        # Kill children first and track for reaping
                         for child in children:
                             try:
                                 child.kill()  # SIGKILL
+                                children_to_reap.append(child.pid)  # Track PID for reaping
                             except psutil.NoSuchProcess:
                                 pass
 
@@ -338,7 +340,25 @@ exit $__exit_code
                 except psutil.NoSuchProcess:
                     logger.debug(f"Process {proc.pid} already terminated")
 
-                # Verify all processes are dead
+                # Reap all killed children to prevent zombies
+                reaped_count = 0
+                for child_pid in children_to_reap:
+                    try:
+                        # Use waitpid with WNOHANG to reap without blocking
+                        pid, status = os.waitpid(child_pid, os.WNOHANG)
+                        if pid != 0:  # Successfully reaped
+                            reaped_count += 1
+                    except ChildProcessError:
+                        # Already reaped by someone else or not our child
+                        pass
+                    except ProcessLookupError:
+                        # Process doesn't exist
+                        pass
+
+                if reaped_count > 0:
+                    logger.debug(f"Reaped {reaped_count} child processes")
+
+                # Verify all processes are dead (not zombies)
                 await asyncio.sleep(0.2)
                 try:
                     parent = psutil.Process(proc.pid)
@@ -348,7 +368,7 @@ exit $__exit_code
                         self.process_kill_failures += 1
                         logger.error(f"ERROR: {len(remaining_children)} processes STILL ALIVE: {remaining_pids}")
                 except psutil.NoSuchProcess:
-                    logger.debug("All processes successfully killed")
+                    logger.debug("All processes successfully killed and reaped")
 
                 # Wait for process to be reaped
                 await proc.wait()
