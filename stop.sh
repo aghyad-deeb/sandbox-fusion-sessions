@@ -2,10 +2,10 @@
 # Stop all SandboxFusion containers (PARALLEL)
 #
 # Usage:
-#   ./stop.sh           # Stop all containers (default: 8)
+#   ./stop.sh           # Stop all containers (default: 64)
 #   ./stop.sh 4         # Stop 4 containers
 
-NUM_CONTAINERS="${1:-${SANDBOX_NUM_CONTAINERS:-8}}"
+NUM_CONTAINERS="${1:-${SANDBOX_NUM_CONTAINERS:-64}}"
 CONTAINER_PREFIX="sandbox-fusion-sessions"
 
 echo "Stopping SandboxFusion containers in parallel..."

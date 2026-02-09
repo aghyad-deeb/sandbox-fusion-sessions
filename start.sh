@@ -2,12 +2,12 @@
 # Start SandboxFusion with Multiple Containers for High Concurrency
 #
 # Usage:
-#   ./start.sh                    # Start with defaults (8 containers, ports 60808-60815)
+#   ./start.sh                    # Start with defaults (64 containers, ports 60808-60815)
 #   ./start.sh 4                  # Start 4 containers
 #   ./start.sh 8 60900            # 8 containers starting at port 60900
 #
 # Environment variables:
-#   SANDBOX_NUM_CONTAINERS       - Number of containers (default: 8)
+#   SANDBOX_NUM_CONTAINERS       - Number of containers (default: 64)
 #   SANDBOX_BASE_PORT            - Starting port (default: 60808)
 #   MAX_CONCURRENT_COMMANDS      - Server-side concurrency limit per container (default: 32)
 #   MAX_BASH_SESSIONS            - Max concurrent sessions per container (default: 15000)
@@ -19,7 +19,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
 # Configuration
-NUM_CONTAINERS="${1:-${SANDBOX_NUM_CONTAINERS:-8}}"
+NUM_CONTAINERS="${1:-${SANDBOX_NUM_CONTAINERS:-64}}"
 BASE_PORT="${2:-${SANDBOX_BASE_PORT:-60808}}"
 MAX_CONCURRENT="${MAX_CONCURRENT_COMMANDS:-32}"
 MAX_SESSIONS="${MAX_BASH_SESSIONS:-15000}"
