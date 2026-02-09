@@ -89,7 +89,7 @@ for i in $(seq 0 $((NUM_CONTAINERS - 1))); do
     docker run -d --rm \
         --name "$CONTAINER_NAME" \
         --ulimit nofile=65535:65535 \
-        -p "$PORT":8080 \
+        -p 127.0.0.1:"$PORT":8080 \
         -e MAX_CONCURRENT_COMMANDS="$MAX_CONCURRENT" \
         -e MAX_BASH_SESSIONS="$MAX_SESSIONS" \
         -e BASH_SESSION_TIMEOUT="$SESSION_TIMEOUT" \
