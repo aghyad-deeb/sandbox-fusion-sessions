@@ -32,6 +32,7 @@ Trade-offs:
 import asyncio
 import base64
 import os
+import shlex
 import shutil
 import signal
 import tempfile
@@ -57,6 +58,7 @@ class BashSession:
     working_dir: str
     cwd: str  # Current working directory within session
     env_file: str  # Path to saved environment file
+    extra_file_paths: List[str] = field(default_factory=list)  # Absolute paths of extra files for cleanup
     created_at: float = field(default_factory=time.time)
     last_used: float = field(default_factory=time.time)
     command_count: int = 0
@@ -149,6 +151,7 @@ class BashSessionManager:
         self,
         session_id: Optional[str] = None,
         files: Optional[Dict[str, Optional[str]]] = None,
+        extra_files: Optional[Dict[str, Optional[str]]] = None,
         startup_commands: Optional[List[str]] = None,
         env: Optional[Dict[str, str]] = None,
     ) -> str:
@@ -157,7 +160,11 @@ class BashSessionManager:
         Args:
             session_id: Optional client-provided session ID for consistent hashing.
                         If None, a UUID is generated server-side.
-            files: Dict of filename -> base64-encoded content to pre-populate.
+            files: Dict of filename -> base64-encoded content to pre-populate
+                   (relative to session working directory).
+            extra_files: Dict of absolute_path -> base64-encoded content to place
+                         outside the working directory (e.g., /tmp/eval/results.json).
+                         These are cleaned up when the session is destroyed.
             startup_commands: Commands to run on session initialization.
             env: Additional environment variables for the session.
             
@@ -174,11 +181,18 @@ class BashSessionManager:
             # Check if session_id already exists (client error)
             if session_id in self.sessions:
                 raise RuntimeError(f"Session {session_id} already exists")
-        working_dir = tempfile.mkdtemp(dir=get_tmp_dir(), prefix=f"sess_{session_id[:8]}_")
+        working_dir = f"/home/agent_{session_id[:8]}"
+        os.makedirs(working_dir, exist_ok=True)
         
-        # Restore files
+        # Restore files into working directory
         if files:
             restore_files(working_dir, files)
+        
+        # Restore extra files at absolute paths (outside working directory)
+        extra_file_paths = []
+        if extra_files:
+            restore_files("/", extra_files)
+            extra_file_paths = list(extra_files.keys())
         
         # Create env file with initial environment
         env_file = os.path.join(working_dir, ".session_env")
@@ -186,7 +200,7 @@ class BashSessionManager:
             f.write("# Session environment\n")
             if env:
                 for k, v in env.items():
-                    f.write(f"export {k}={shutil.quote(v)}\n")
+                    f.write(f"export {k}={shlex.quote(v)}\n")
         
         # Create cwd file
         cwd_file = os.path.join(working_dir, ".session_cwd")
@@ -198,6 +212,7 @@ class BashSessionManager:
             working_dir=working_dir,
             cwd=working_dir,
             env_file=env_file,
+            extra_file_paths=extra_file_paths,
         )
         
         async with self._lock:
@@ -421,6 +436,14 @@ exit $__exit_code
         try:
             if os.path.exists(session.working_dir):
                 shutil.rmtree(session.working_dir, ignore_errors=True)
+            # Clean up extra files placed outside working_dir
+            for path in session.extra_file_paths:
+                try:
+                    abs_path = f"/{path}" if not path.startswith("/") else path
+                    if os.path.exists(abs_path):
+                        os.remove(abs_path)
+                except Exception as e:
+                    logger.debug(f"Failed to clean up extra file {path}: {e}")
             logger.info(f"Destroyed session {session_id}")
             return True
         except Exception as e:

@@ -47,6 +47,10 @@ class CreateSessionRequest(BaseModel):
         default={},
         description="Dict of filename -> base64-encoded content to pre-populate in session"
     )
+    extra_files: Dict[str, Optional[str]] = Field(
+        default={},
+        description="Dict of absolute_path -> base64-encoded content to place outside the working directory (e.g., /tmp/eval/results.json)"
+    )
     startup_commands: List[str] = Field(
         default=[],
         description="Commands to run on session initialization (e.g., 'cd /app', 'export PATH=...')"
@@ -137,6 +141,7 @@ async def create_session(request: CreateSessionRequest) -> CreateSessionResponse
         session_id = await manager.create_session(
             session_id=request.session_id,
             files=request.files,
+            extra_files=request.extra_files,
             startup_commands=request.startup_commands,
             env=request.env,
         )
