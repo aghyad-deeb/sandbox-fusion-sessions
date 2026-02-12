@@ -1,10 +1,12 @@
 # Extend the existing SandboxFusion image with session support
 FROM volcengine/sandbox-fusion:server-20250609
 
-# Copy the session support files (both PTY and pipes versions)
+# Copy the session support files (PTY, pipes, and overlay versions)
 COPY sandbox/runners/bash_session.py /root/sandbox/sandbox/runners/bash_session.py
 COPY sandbox/runners/bash_session_pipes.py /root/sandbox/sandbox/runners/bash_session_pipes.py
+COPY sandbox/runners/bash_session_overlay.py /root/sandbox/sandbox/runners/bash_session_overlay.py
 COPY sandbox/server/session_api.py /root/sandbox/sandbox/server/session_api.py
+COPY sandbox/server/overlay_session_api.py /root/sandbox/sandbox/server/overlay_session_api.py
 COPY sandbox/server/server.py /root/sandbox/sandbox/server/server.py
 
 WORKDIR /root/sandbox

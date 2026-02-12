@@ -88,6 +88,8 @@ for i in $(seq 0 $((NUM_CONTAINERS - 1))); do
 
     docker run -d --rm \
         --name "$CONTAINER_NAME" \
+        --cap-add SYS_ADMIN \
+        --security-opt apparmor=unconfined \
         --ulimit nofile=65535:65535 \
         -p 127.0.0.1:"$PORT":8080 \
         -e MAX_CONCURRENT_COMMANDS="$MAX_CONCURRENT" \
@@ -154,10 +156,13 @@ if [ "$ALL_READY" = true ]; then
     echo "    export SANDBOX_FUSION_ENDPOINTS=\"$ENDPOINTS\""
     echo ""
     echo "  API Endpoints (on each container):"
-    echo "    POST /session/create   - Create a session"
-    echo "    POST /session/run      - Run command in session"
-    echo "    POST /session/destroy  - Destroy session"
-    echo "    GET  /session/list     - List all sessions"
+    echo "    POST /session/create            - Create a session"
+    echo "    POST /session/run               - Run command in session"
+    echo "    POST /session/destroy           - Destroy session"
+    echo "    GET  /session/list              - List all sessions"
+    echo "    POST /overlay-session/create    - Create overlay-isolated session"
+    echo "    POST /overlay-session/run       - Run in overlay session"
+    echo "    POST /overlay-session/destroy   - Destroy overlay session"
     echo ""
     echo "  To stop:  ./stop.sh"
     echo "  Logs:     docker logs -f ${CONTAINER_PREFIX}-0"

@@ -25,7 +25,9 @@ from sandbox.database import get_databases
 from sandbox.server.online_judge_api import oj_router
 from sandbox.server.sandbox_api import sandbox_router
 from sandbox.server.session_api import session_router
+from sandbox.server.overlay_session_api import overlay_session_router
 from sandbox.runners.bash_session_pipes import init_session_manager, shutdown_session_manager
+from sandbox.runners.bash_session_overlay import init_overlay_session_manager, shutdown_overlay_session_manager
 from sandbox.utils.logging import configure_logging
 
 configure_logging()
@@ -42,7 +44,15 @@ async def lifespan(app: FastAPI):
         session_timeout=float(os.environ.get('BASH_SESSION_TIMEOUT', '3600')),
     )
     logger.info('bash session manager initialized')
+    # Initialize overlay session manager for isolated sessions
+    await init_overlay_session_manager(
+        max_sessions=int(os.environ.get('MAX_BASH_SESSIONS', '10000')),
+        session_timeout=float(os.environ.get('BASH_SESSION_TIMEOUT', '3600')),
+    )
+    logger.info('overlay session manager initialized')
     yield
+    await shutdown_overlay_session_manager()
+    logger.info('overlay session manager shutdown')
     await shutdown_session_manager()
     logger.info('bash session manager shutdown')
     await datalake.disconnect()
@@ -97,6 +107,7 @@ async def base_exception_handler(request: Request, exc: Exception):
 app.include_router(sandbox_router, tags=['sandbox'])
 app.include_router(oj_router, tags=['datasets'])
 app.include_router(session_router)  # Stateful bash sessions
+app.include_router(overlay_session_router)  # OverlayFS-isolated sessions
 
 
 @app.get("/v1/ping")
